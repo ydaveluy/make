@@ -118,6 +118,7 @@ struct dep *enter_prereqs (struct dep *prereqs, const char *stem);
 struct dep *expand_extra_prereqs (const struct variable *extra);
 void remove_intermediates (int sig);
 void snap_deps (void);
+void snap_file (struct file *f);
 void rename_file (struct file *file, const char *name);
 void rehash_file (struct file *file, const char *name);
 void set_command_state (struct file *file, enum cmd_state state);

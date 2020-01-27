@@ -528,6 +528,9 @@ update_file_1 (struct file *file, unsigned int depth)
     {
       struct dep *lastd = 0;
 
+      /* snap the file */
+      snap_file(ad->file);
+
       /* Find the deps we're scanning */
       d = ad->file->deps;
       ad = ad->next;

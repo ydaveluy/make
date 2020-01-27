@@ -62,6 +62,9 @@ static struct hash_table files;
 /* Whether or not .SECONDARY with no prerequisites was given.  */
 static int all_secondary = 0;
 
+static struct dep *extra_prereqs;
+static const char *suffixes;
+
 /* Access the hash table of all file records.
    lookup_file  given a name, return the struct file * for that name,
                 or nil if there is none.
@@ -657,15 +660,16 @@ expand_extra_prereqs (const struct variable *extra)
 
 /* Perform per-file snap operations. */
 
-static void
-snap_file (const void *item, void *arg)
+void
+snap_file (struct file *f)
 {
-  struct file *f = (struct file*)item;
   struct dep *prereqs = NULL;
 
   /* If we're not doing second expansion then reset updating.  */
   if (!second_expansion)
     f->updating = 0;
+  else if (f->name != suffixes)
+    expand_deps(f);
 
   /* If .SECONDARY is set with no deps, mark all targets as intermediate.  */
   if (all_secondary)
@@ -676,7 +680,7 @@ snap_file (const void *item, void *arg)
     prereqs = expand_extra_prereqs (lookup_variable_in_set (STRING_SIZE_TUPLE(".EXTRA_PREREQS"), f->variables->set));
 
   else if (f->is_target)
-    prereqs = copy_dep_chain (arg);
+    prereqs = copy_dep_chain (extra_prereqs);
 
   if (prereqs)
     {
@@ -729,24 +733,11 @@ snap_deps (void)
 
   if (second_expansion)
     {
-      struct file **file_slot_0 = (struct file **) hash_dump (&files, 0, 0);
-      struct file **file_end = file_slot_0 + files.ht_fill;
-      struct file **file_slot;
-      const char *suffixes;
-
       /* Expand .SUFFIXES: its prerequisites are used for $$* calc.  */
       f = lookup_file (".SUFFIXES");
       suffixes = f ? f->name : 0;
       for (; f != 0; f = f->prev)
         expand_deps (f);
-
-      /* For every target that's not .SUFFIXES, expand its prerequisites.  */
-
-      for (file_slot = file_slot_0; file_slot < file_end; file_slot++)
-        for (f = *file_slot; f != 0; f = f->prev)
-          if (f->name != suffixes)
-            expand_deps (f);
-      free (file_slot_0);
     }
 
   /* Now manage all the special targets.  */
@@ -822,12 +813,10 @@ snap_deps (void)
     not_parallel = 1;
 
   {
-    struct dep *prereqs = expand_extra_prereqs (lookup_variable (STRING_SIZE_TUPLE(".EXTRA_PREREQS")));
+    extra_prereqs = expand_extra_prereqs (lookup_variable (STRING_SIZE_TUPLE(".EXTRA_PREREQS")));
 
-    /* Perform per-file snap operations.  */
-    hash_map_arg(&files, snap_file, prereqs);
-
-    free_dep_chain (prereqs);
+    //TODO free extra_prereqs when goaldeps is finished
+    //free_dep_chain (prereqs);
   }
 
 #ifndef NO_MINUS_C_MINUS_O

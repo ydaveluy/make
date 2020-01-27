@@ -1,0 +1,22 @@
+#                                                                    -*-perl-*-
+
+$description = "Test no second expansion if target is not required.";
+
+$details = "";
+
+
+
+# Test no second expansion if target is not required.
+run_make_test(q{
+.PHONY: all
+all: t1
+.SECONDEXPANSION:
+t1:;@echo $@
+
+t2: $$(error Should not be expanded)
+},
+              '', "t1");
+
+
+# This tells the test driver that the perl test script executed properly.
+1;
