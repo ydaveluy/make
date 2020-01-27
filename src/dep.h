@@ -34,6 +34,7 @@ struct nameseq
 #define RM_INCLUDED             (1 << 1) /* Search makefile search path.  */
 #define RM_DONTCARE             (1 << 2) /* No error if it doesn't exist.  */
 #define RM_NO_TILDE             (1 << 3) /* Don't expand ~ in file name.  */
+#define RM_IMPORTED             (1 << 4) /* Don't expand ~ in file name.  */
 #define RM_NOFLAG               0
 
 /* Structure representing one dependency of a file.
@@ -76,6 +77,7 @@ struct goaldep
 #define PARSEFS_EXISTS  0x0008
 #define PARSEFS_NOCACHE 0x0010
 #define PARSEFS_ONEWORD 0x0020
+#define PARSEFS_CONTEXT 0x0040
 
 #define PARSE_FILE_SEQ(_s,_t,_c,_p,_f) \
             (_t *)parse_file_seq ((_s),sizeof (_t),(_c),(_p),(_f))

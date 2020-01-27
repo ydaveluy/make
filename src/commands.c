@@ -148,6 +148,18 @@ set_file_variables (struct file *file)
 #define DEFINE_VARIABLE(name, len, value) \
   (void) define_variable_for_file (name,len,value,o_automatic,0,file)
 
+
+  /* Update the CURDIR */
+  if (file->context_directory)
+    {
+      if (IS_ABSOLUTE(file->context_directory))
+	DEFINE_VARIABLE("CURDIR", 6, file->context_directory);
+      else
+	DEFINE_VARIABLE(
+	    "CURDIR", 6,
+	    concat (3, starting_directory, "/", file->context_directory));
+    }
+
   /* Define the variables.  */
 
   DEFINE_VARIABLE ("<", 1, less);

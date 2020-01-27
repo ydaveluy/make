@@ -124,6 +124,10 @@ static const char **include_directories;
 
 static size_t max_incl_len;
 
+/* Our current context.  */
+const char* context_directory;
+unsigned short context_directory_available;
+
 /* The filename and pointer to line number of the
    makefile currently being read in.  */
 
@@ -165,6 +169,34 @@ static char *unescape_char (char *string, int c);
 */
 #define word1eq(s)      (wlen == CSTRLEN (s) && strneq (s, p, CSTRLEN (s)))
 
+/* Change the current directory */
+void
+change_directory (const char *new_directory)
+{
+  if (chdir (new_directory) < 0)
+    pfatal_with_name (new_directory);
+}
+
+/* Get the current directory */
+void
+get_current_directory (char *curdir, size_t size)
+{
+#ifdef WINDOWS32
+  if ( getcwd_fs (curdir, size) == 0)
+#else
+  if (getcwd (curdir, size) == 0)
+#endif
+    {
+#ifdef  HAVE_GETCWD
+      perror_with_name ("getcwd", "");
+#else
+      OS (error, NILF, "getwd: %s", curdir);
+#endif
+      curdir[0] = '\0';
+    }
+
+}
+
 
 /* Read in all the makefiles and return a chain of targets to rebuild.  */
 
@@ -172,6 +204,11 @@ struct goaldep *
 read_all_makefiles (const char **makefiles)
 {
   unsigned int num_makefiles = 0;
+
+
+  /* Initialize the context of execution.  */
+  context_directory = 0;
+  context_directory_available = 1;
 
   /* Create *_LIST variables, to hold the makefiles, targets, and variables
      we will be reading. */
@@ -396,7 +433,10 @@ eval_makefile (const char *filename, unsigned short flags)
     }
 
   /* Enter the final name for this makefile as a goaldep.  */
-  filename = strcache_add (filename);
+  if (context_directory && !IS_ABSOLUTE(filename))
+    filename = strcache_add (concat (3, context_directory, "/", filename));
+  else
+    filename = strcache_add (filename);
   deps->file = lookup_file (filename);
   if (deps->file == 0)
     deps->file = enter_file (filename);
@@ -433,7 +473,52 @@ eval_makefile (const char *filename, unsigned short flags)
   curfile = reading_file;
   reading_file = &ebuf.floc;
 
-  eval (&ebuf, !(flags & RM_NO_DEFAULT_GOAL));
+    {
+      char *sep;
+      /* if it is an imported makefile in an other directory then switch context */
+      if (ANY_SET(flags, RM_IMPORTED) && (sep = strrchr (filename, '/')))
+	{
+	  /* Save the current context */
+	  const char *current_context_directory = context_directory;
+	  const char *current_directory;
+
+	  if (current_context_directory)
+	    {
+	      if (IS_ABSOLUTE(current_context_directory))
+		current_directory = current_context_directory;
+	      else
+		current_directory = strcache_add (
+		    concat (3, starting_directory, "/",
+			    current_context_directory));
+	    }
+	  else
+	    current_directory = starting_directory;
+
+	  *sep = '\0';
+	  context_directory = strcache_add (filename);
+
+	  if (IS_ABSOLUTE(context_directory))
+	    define_variable_cname("CURDIR", context_directory, o_file, 0);
+	  else
+	    define_variable_cname(
+		"CURDIR", concat (3, current_directory, "/", context_directory),
+		o_file, 0);
+
+	  /* Switch context */
+	  change_directory (context_directory);
+
+	  /* Evaluate the makefile to import */
+	  eval (&ebuf, !(flags & RM_NO_DEFAULT_GOAL));
+
+	  /* Restore the context */
+	  change_directory (current_directory);
+	  context_directory = current_context_directory;
+
+	  define_variable_cname("CURDIR", current_directory, o_file, 0);
+	}
+      else
+	eval (&ebuf, !(flags & RM_NO_DEFAULT_GOAL));
+    }
 
   reading_file = curfile;
 
@@ -920,6 +1005,69 @@ eval (struct ebuffer *ebuf, int set_default)
           continue;
         }
 
+      /* Handle include and variants.  */
+      if (word1eq ("import") || word1eq ("-import"))
+        {
+          /* We have found an 'import' line specifying a nested
+             makefile to be read at this point in a separated context.  */
+          struct conditionals *save;
+          struct conditionals new_conditionals;
+          struct nameseq *files;
+          /* "-include" (vs "include") says no error if the file does not
+             exist.  "sinclude" is an alias for this from SGI.  */
+          int noerror = (p[0] != 'i');
+
+          /* Include ends the previous rule.  */
+          record_waiting_files ();
+
+          p = allocated_variable_expand (p2);
+
+          /* If no filenames, it's a no-op.  */
+          if (*p == '\0')
+            {
+              free (p);
+              continue;
+            }
+
+          /* Parse the list of file names.  Don't expand archive references!  */
+          p2 = p;
+          files = PARSE_FILE_SEQ (&p2, struct nameseq, MAP_NUL, NULL,
+                                  PARSEFS_NOAR);
+          free (p);
+
+          /* Save the state of conditionals and start
+             the included makefile with a clean slate.  */
+          save = install_conditionals (&new_conditionals);
+
+          /* Record the rules that are waiting so they will determine
+             the default goal before those in the included makefile.  */
+          record_waiting_files ();
+
+          /* Read each included makefile.  */
+          while (files != 0)
+            {
+              struct nameseq *next = files->next;
+			  struct goaldep *d;
+
+              unsigned short flags = (RM_INCLUDED | RM_IMPORTED | RM_NO_TILDE
+                                      | (noerror ? RM_DONTCARE : 0)
+                                      | (set_default ? 0 : RM_NO_DEFAULT_GOAL));
+
+
+              d = eval_makefile (files->name, flags);
+
+              if (errno)
+                d->floc = *fstart;
+
+              free_ns (files);
+              files = next;
+            }
+
+          /* Restore conditional state.  */
+          restore_conditionals (save);
+
+          continue;
+        }
       /* Handle the load operations.  */
       if (word1eq ("load") || word1eq ("-load"))
         {
@@ -1968,7 +2116,11 @@ record_files (struct nameseq *filenames, int are_also_makes,
     O (fatal, flocp, _("prerequisites cannot be defined in recipes"));
 
   /* Determine if this is a pattern rule or not.  */
-  name = filenames->name;
+  if (context_directory && !IS_ABSOLUTE(filenames->name))
+    name = strcache_add (concat (3, context_directory, "/", filenames->name));
+  else
+    name = filenames->name;
+
   implicit_percent = find_percent_cached (&name);
 
   /* If there's a recipe, set up a struct for it.  */
@@ -3418,6 +3570,44 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
             break;
           }
 
+
+      /* If context_directory is defined and name is a
+       relative path, then we have to prefix the name with the
+       context directory. During commands execution the context_directory
+       is disabled, we use the process getcwd instead. */
+      if (ANY_SET (flags, PARSEFS_CONTEXT) && !IS_ABSOLUTE(name))
+	{
+	  const char *ctx = 0;
+	  PATH_VAR(curdir);
+	  if (context_directory_available)
+	    {
+	      if (context_directory)
+		ctx = context_directory;
+	    }
+	  else
+	    {
+	      get_current_directory (curdir, GET_PATH_MAX);
+	      if (!streq(curdir, starting_directory))
+		ctx = curdir;
+	    }
+	  if (ctx)
+	    {
+	      if (globme || !cachep)
+		{
+		  char *new_name;
+		  for (i = 0; i < tot; ++i)
+		    {
+		      new_name = xstrdup (concat (3, ctx, "/", nlist[i]));
+		      free ((char*)nlist[i]);
+		      nlist[i] = new_name;
+		    }
+		}
+	      else
+		for (i = 0; i < tot; ++i)
+		  nlist[i] = strcache_add (concat (3, ctx, "/", nlist[i]));
+
+	    }
+	}
       /* For each matched element, add it to the list.  */
       for (i = 0; i < tot; ++i)
 #ifndef NO_ARCHIVES

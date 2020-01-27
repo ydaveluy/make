@@ -2169,6 +2169,13 @@ main (int argc, char **argv, char **envp)
         }
     }
 
+
+  /* Invalidate the context_directory: many jobs in parallel can request
+     functions which need the context_directory var. These functions
+     will need to get the current directory with getcwd
+   */
+  context_directory_available = 0;
+
   /* Initialize the remote job module.  */
   remote_setup ();
 

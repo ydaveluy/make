@@ -29,17 +29,18 @@ struct variable_set_list;
 struct file
   {
     const char *name;
-    const char *hname;          /* Hashed filename */
-    const char *vpath;          /* VPATH/vpath pathname */
-    struct dep *deps;           /* all dependencies, including duplicates */
-    struct commands *cmds;      /* Commands to execute for this target.  */
-    const char *stem;           /* Implicit stem, if an implicit
-                                   rule has been used */
-    struct dep *also_make;      /* Targets that are made by making this.  */
-    struct file *prev;          /* Previous entry for same file name;
-                                   used when there are multiple double-colon
-                                   entries for the same file.  */
-    struct file *last;          /* Last entry for the same file name.  */
+    const char *hname;              /* Hashed filename */
+    const char *vpath;              /* VPATH/vpath pathname */
+    const char *context_directory;  /* a different context directory */
+    struct dep *deps;               /* all dependencies, including duplicates */
+    struct commands *cmds;          /* Commands to execute for this target.  */
+    const char *stem;               /* Implicit stem, if an implicit
+                                       rule has been used */
+    struct dep *also_make;          /* Targets that are made by making this.  */
+    struct file *prev;              /* Previous entry for same file name;
+                                       used when there are multiple double-colon
+                                       entries for the same file.  */
+    struct file *last;              /* Last entry for the same file name.  */
 
     /* File that this file was renamed to.  After any time that a
        file could be renamed, call 'check_renamed' (below).  */

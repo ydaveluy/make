@@ -2019,22 +2019,11 @@ func_not (char *o, char **argv, char *funcname UNUSED)
 #endif
 
 
-#ifdef HAVE_DOS_PATHS
-# ifdef __CYGWIN__
-#  define IS_ABSOLUTE(n) ((n[0] && n[1] == ':') || STOP_SET (n[0], MAP_DIRSEP))
-# else
-#  define IS_ABSOLUTE(n) (n[0] && n[1] == ':')
-# endif
-# define ROOT_LEN 3
-#else
-# define IS_ABSOLUTE(n) (n[0] == '/')
-# define ROOT_LEN 1
-#endif
 
 /* Return the absolute name of file NAME which does not contain any '.',
    '..' components nor any repeated path separators ('/').   */
 
-static char *
+char *
 abspath (const char *name, char *apath)
 {
   char *dest;
@@ -2048,11 +2037,23 @@ abspath (const char *name, char *apath)
 
   if (!IS_ABSOLUTE(name))
     {
-      /* It is unlikely we would make it until here but just to make sure. */
-      if (!starting_directory)
-        return NULL;
 
-      strcpy (apath, starting_directory);
+      if (context_directory_available)
+	{
+	  if (context_directory)
+	    {
+	      if (IS_ABSOLUTE(context_directory))
+		strcpy (apath, context_directory);
+	      else
+		strcpy (apath,
+			concat (3, starting_directory, "/", context_directory));
+	    }
+	  else
+	    strcpy (apath, starting_directory);
+	}
+      else
+	  get_current_directory (apath, GET_PATH_MAX);
+
 
 #ifdef HAVE_DOS_PATHS
       if (STOP_SET (name[0], MAP_DIRSEP))

@@ -1457,8 +1457,21 @@ start_job_command (struct child *child)
 
       jobserver_pre_child (flags & COMMANDS_RECURSE);
 
-      child->pid = child_execute_job ((struct childbase *)child,
-                                      child->good_stdin, argv);
+      if (child->file->context_directory)
+	{
+
+	  change_directory(child->file->context_directory);
+
+	  child->pid = child_execute_job ((struct childbase*) child,
+					  child->good_stdin, argv);
+	  change_directory(starting_directory);
+	}
+      else
+	{
+
+	  child->pid = child_execute_job ((struct childbase*) child,
+					  child->good_stdin, argv);
+	}
 
       environ = parent_environ; /* Restore value child may have clobbered.  */
       jobserver_post_child (flags & COMMANDS_RECURSE);
@@ -1805,8 +1818,18 @@ new_job (struct file *file)
 
       /* Finally, expand the line.  */
       cmds->fileinfo.offset = i;
-      lines[i] = allocated_variable_expand_for_file (cmds->command_lines[i],
-                                                     file);
+      if (file->context_directory)
+	{
+	  change_directory(file->context_directory);
+	  lines[i] = allocated_variable_expand_for_file (cmds->command_lines[i],
+							 file);
+	  change_directory(starting_directory);
+	}
+      else
+	{
+	  lines[i] = allocated_variable_expand_for_file (cmds->command_lines[i],
+							 file);
+	}
     }
 
   cmds->fileinfo.offset = 0;

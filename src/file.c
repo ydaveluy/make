@@ -206,6 +206,9 @@ enter_file (const char *name)
       f->last = new;
     }
 
+  /* set the context directory  */
+  new->context_directory = context_directory;
+
   return new;
 }
 
@@ -443,7 +446,7 @@ struct dep *
 split_prereqs (char *p)
 {
   struct dep *new = PARSE_FILE_SEQ (&p, struct dep, MAP_PIPE, NULL,
-                                    PARSEFS_NONE);
+				    PARSEFS_CONTEXT);
 
   if (*p)
     {
@@ -605,7 +608,14 @@ expand_deps (struct file *f)
 
       set_file_variables (f);
 
+      /* Change the context directory if any */
+      if (f->context_directory)
+	{
+	  change_directory (f->context_directory);
+	  context_directory = f->context_directory;
+	}
       p = variable_expand_for_file (d->name, f);
+
 
       if (d->stem != 0)
         f->stem = file_stem;
@@ -615,6 +625,13 @@ expand_deps (struct file *f)
 
       /* Parse the prerequisites and enter them into the file database.  */
       new = enter_prereqs (split_prereqs (p), d->stem);
+
+      /* Restore the context directory */
+      if (f->context_directory)
+	{
+	  change_directory (starting_directory);
+	  context_directory = 0;
+	}
 
       /* If there were no prereqs here (blank!) then throw this one out.  */
       if (new == 0)

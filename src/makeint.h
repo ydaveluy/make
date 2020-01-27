@@ -565,6 +565,9 @@ const char *dir_name (const char *);
 void print_dir_data_base (void);
 void dir_setup_glob (glob_t *);
 void hash_init_directories (void);
+void change_directory (const char *new_directory);
+void get_current_directory (char *curdir, size_t size);
+char *abspath (const char *name, char *apath);
 
 void define_default_variables (void);
 void undefine_default_variables (void);
@@ -654,6 +657,19 @@ int strncasecmp (const char *s1, const char *s2, int n);
 # endif
 #endif
 
+
+#ifdef HAVE_DOS_PATHS
+# ifdef __CYGWIN__
+#  define IS_ABSOLUTE(n) ((n[0] && n[1] == ':') || STOP_SET (n[0], MAP_DIRSEP))
+# else
+#  define IS_ABSOLUTE(n) (n[0] && n[1] == ':')
+# endif
+# define ROOT_LEN 3
+#else
+# define IS_ABSOLUTE(n) (n[0] == '/')
+# define ROOT_LEN 1
+#endif
+
 #define OUTPUT_SYNC_NONE    0
 #define OUTPUT_SYNC_LINE    1
 #define OUTPUT_SYNC_TARGET  2
@@ -732,6 +748,8 @@ void print_variable_data_base (void);
 void print_vpath_data_base (void);
 
 extern char *starting_directory;
+extern const char *context_directory;
+extern unsigned short context_directory_available;
 extern unsigned int makelevel;
 extern char *version_string, *remote_description, *make_host;
 
