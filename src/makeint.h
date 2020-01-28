@@ -565,8 +565,6 @@ const char *dir_name (const char *);
 void print_dir_data_base (void);
 void dir_setup_glob (glob_t *);
 void hash_init_directories (void);
-void change_directory (const char *new_directory);
-void get_current_directory (char *curdir, size_t size);
 char *abspath (const char *name, char *apath);
 
 void define_default_variables (void);
@@ -749,7 +747,6 @@ void print_vpath_data_base (void);
 
 extern char *starting_directory;
 extern const char *context_directory;
-extern unsigned short context_directory_available;
 extern unsigned int makelevel;
 extern char *version_string, *remote_description, *make_host;
 
@@ -805,6 +802,12 @@ extern int handling_fatal_signal;
 # define initialize_main(pargc, pargv)
 #endif
 
+/* Change the current directory */
+#define change_directory(new_directory) \
+    {\
+      if (chdir (new_directory) < 0)\
+        pfatal_with_name (new_directory);\
+    }
 
 /* Some systems (like Solaris, PTX, etc.) do not support the SA_RESTART flag
    properly according to POSIX.  So, we try to wrap common system calls with

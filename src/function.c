@@ -2037,23 +2037,19 @@ abspath (const char *name, char *apath)
 
   if (!IS_ABSOLUTE(name))
     {
-
-      if (context_directory_available)
+#ifdef WINDOWS32
+  if ( getcwd_fs (apath, GET_PATH_MAX) == 0)
+#else
+      if (getcwd (apath, GET_PATH_MAX) == 0)
+#endif
 	{
-	  if (context_directory)
-	    {
-	      if (IS_ABSOLUTE(context_directory))
-		strcpy (apath, context_directory);
-	      else
-		strcpy (apath,
-			concat (3, starting_directory, "/", context_directory));
-	    }
-	  else
-	    strcpy (apath, starting_directory);
+#ifdef  HAVE_GETCWD
+	  perror_with_name ("getcwd", "");
+#else
+      OS (error, NILF, "getwd: %s", apath);
+#endif
+	  apath[0] = '\0';
 	}
-      else
-	  get_current_directory (apath, GET_PATH_MAX);
-
 
 #ifdef HAVE_DOS_PATHS
       if (STOP_SET (name[0], MAP_DIRSEP))

@@ -126,7 +126,6 @@ static size_t max_incl_len;
 
 /* Our current context.  */
 const char* context_directory;
-unsigned short context_directory_available;
 
 /* The filename and pointer to line number of the
    makefile currently being read in.  */
@@ -169,33 +168,7 @@ static char *unescape_char (char *string, int c);
 */
 #define word1eq(s)      (wlen == CSTRLEN (s) && strneq (s, p, CSTRLEN (s)))
 
-/* Change the current directory */
-void
-change_directory (const char *new_directory)
-{
-  if (chdir (new_directory) < 0)
-    pfatal_with_name (new_directory);
-}
 
-/* Get the current directory */
-void
-get_current_directory (char *curdir, size_t size)
-{
-#ifdef WINDOWS32
-  if ( getcwd_fs (curdir, size) == 0)
-#else
-  if (getcwd (curdir, size) == 0)
-#endif
-    {
-#ifdef  HAVE_GETCWD
-      perror_with_name ("getcwd", "");
-#else
-      OS (error, NILF, "getwd: %s", curdir);
-#endif
-      curdir[0] = '\0';
-    }
-
-}
 
 
 /* Read in all the makefiles and return a chain of targets to rebuild.  */
@@ -208,7 +181,6 @@ read_all_makefiles (const char **makefiles)
 
   /* Initialize the context of execution.  */
   context_directory = 0;
-  context_directory_available = 1;
 
   /* Create *_LIST variables, to hold the makefiles, targets, and variables
      we will be reading. */
@@ -434,9 +406,10 @@ eval_makefile (const char *filename, unsigned short flags)
 
   /* Enter the final name for this makefile as a goaldep.  */
   if (context_directory && !IS_ABSOLUTE(filename))
-    filename = strcache_add (concat (3, context_directory, "/", filename));
+    filename = strcache_add (concat (2, context_directory, filename));
   else
     filename = strcache_add (filename);
+
   deps->file = lookup_file (filename);
   if (deps->file == 0)
     deps->file = enter_file (filename);
@@ -494,14 +467,14 @@ eval_makefile (const char *filename, unsigned short flags)
 	  else
 	    current_directory = starting_directory;
 
-	  *sep = '\0';
+	  *(sep+1) = '\0';
 	  context_directory = strcache_add (filename);
-
-	  if (IS_ABSOLUTE(context_directory))
-	    define_variable_cname("CURDIR", context_directory, o_file, 0);
+	  *sep = '\0';
+	  if (IS_ABSOLUTE(filename))
+	    define_variable_cname("CURDIR", filename, o_file, 0);
 	  else
 	    define_variable_cname(
-		"CURDIR", concat (3, current_directory, "/", context_directory),
+		"CURDIR", concat (3, current_directory, "/", filename),
 		o_file, 0);
 
 	  /* Switch context */
@@ -2117,7 +2090,7 @@ record_files (struct nameseq *filenames, int are_also_makes,
 
   /* Determine if this is a pattern rule or not.  */
   if (context_directory && !IS_ABSOLUTE(filenames->name))
-    name = strcache_add (concat (3, context_directory, "/", filenames->name));
+    name = strcache_add (concat (2, context_directory, filenames->name));
   else
     name = filenames->name;
 
@@ -2197,7 +2170,11 @@ record_files (struct nameseq *filenames, int are_also_makes,
       c = 1;
       while (filenames)
         {
-          name = filenames->name;
+	  if (context_directory && !IS_ABSOLUTE(filenames->name))
+	    name = strcache_add (concat (2, context_directory, filenames->name));
+	  else
+	    name = filenames->name;
+
           implicit_percent = find_percent_cached (&name);
 
           if (implicit_percent == 0)
@@ -2391,7 +2368,10 @@ record_files (struct nameseq *filenames, int are_also_makes,
             }
         }
 
-      name = f->name;
+      if (context_directory && !IS_ABSOLUTE(f->name))
+        name = strcache_add (concat (2, context_directory, f->name));
+      else
+        name = f->name;
 
       /* All done!  Set up for the next one.  */
       if (nextf == 0)
@@ -2400,7 +2380,11 @@ record_files (struct nameseq *filenames, int are_also_makes,
       filenames = nextf;
 
       /* Reduce escaped percents.  If there are any unescaped it's an error  */
-      name = filenames->name;
+      if (context_directory && !IS_ABSOLUTE(filenames->name))
+        name = strcache_add (concat (2, context_directory, filenames->name));
+      else
+        name = filenames->name;
+
       if (find_percent_cached (&name))
         O (error, flocp,
            _("*** mixed implicit and normal rules: deprecated syntax"));
@@ -3290,6 +3274,7 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
   char *p;
   glob_t gl;
   char *tp;
+  const char *context_prefix;
   int findmap = stopmap|MAP_VMSCOMMA|MAP_NUL;
 
   if (NONE_SET (flags, PARSEFS_ONEWORD))
@@ -3503,11 +3488,18 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
         }
 #endif
 
+      if (context_directory && ANY_SET(flags, PARSEFS_CONTEXT)
+	  && !IS_ABSOLUTE(tmpbuf) && tmpbuf[0] != '~')
+	context_prefix = strcache_add (
+	    concat (2, context_directory, prefix));
+      else
+	context_prefix = prefix;
+
       /* If we're not globbing we're done: add it to the end of the chain.
          Go to the next item in the string.  */
       if (ANY_SET (flags, PARSEFS_NOGLOB))
         {
-          NEWELT (concat (2, prefix, tmpbuf));
+          NEWELT (concat (2, context_prefix, tmpbuf));
           continue;
         }
 
@@ -3570,44 +3562,6 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
             break;
           }
 
-
-      /* If context_directory is defined and name is a
-       relative path, then we have to prefix the name with the
-       context directory. During commands execution the context_directory
-       is disabled, we use the process getcwd instead. */
-      if (ANY_SET (flags, PARSEFS_CONTEXT) && !IS_ABSOLUTE(name))
-	{
-	  const char *ctx = 0;
-	  PATH_VAR(curdir);
-	  if (context_directory_available)
-	    {
-	      if (context_directory)
-		ctx = context_directory;
-	    }
-	  else
-	    {
-	      get_current_directory (curdir, GET_PATH_MAX);
-	      if (!streq(curdir, starting_directory))
-		ctx = curdir;
-	    }
-	  if (ctx)
-	    {
-	      if (globme || !cachep)
-		{
-		  char *new_name;
-		  for (i = 0; i < tot; ++i)
-		    {
-		      new_name = xstrdup (concat (3, ctx, "/", nlist[i]));
-		      free ((char*)nlist[i]);
-		      nlist[i] = new_name;
-		    }
-		}
-	      else
-		for (i = 0; i < tot; ++i)
-		  nlist[i] = strcache_add (concat (3, ctx, "/", nlist[i]));
-
-	    }
-	}
       /* For each matched element, add it to the list.  */
       for (i = 0; i < tot; ++i)
 #ifndef NO_ARCHIVES
@@ -3617,7 +3571,7 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
             struct nameseq *found = ar_glob (nlist[i], memname, size);
             if (! found)
               /* No matches.  Use MEMNAME as-is.  */
-              NEWELT (concat (5, prefix, nlist[i], "(", memname, ")"));
+              NEWELT (concat (5, context_prefix, nlist[i], "(", memname, ")"));
             else
               {
                 /* We got a chain of items.  Attach them.  */
@@ -3630,9 +3584,9 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
                 while (1)
                   {
                     if (! cachep)
-                      found->name = xstrdup (concat (2, prefix, name));
+                      found->name = xstrdup (concat (2, context_prefix, name));
                     else if (prefix)
-                      found->name = strcache_add (concat (2, prefix, name));
+                      found->name = strcache_add (concat (2, context_prefix, name));
 
                     if (found->next == 0)
                       break;
@@ -3644,7 +3598,7 @@ parse_file_seq (char **stringp, size_t size, int stopmap,
           }
         else
 #endif /* !NO_ARCHIVES */
-          NEWELT (concat (2, prefix, nlist[i]));
+          NEWELT (concat (2, context_prefix, nlist[i]));
 
       if (globme)
         globfree (&gl);

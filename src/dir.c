@@ -449,23 +449,9 @@ find_directory (const char *name)
   struct directory *dir;
   struct directory **dir_slot;
   struct directory dir_key;
+  PATH_VAR(curdir);
 
-  dir_key.name = name;
-  if (!IS_ABSOLUTE(name))
-    {
-      if (context_directory_available)
-	{
-	  if (context_directory)
-	      dir_key.name = strcache_add (concat (3, context_directory, "/", name));
-	}
-      else
-	{
-	  PATH_VAR(curdir);
-	  get_current_directory (curdir, GET_PATH_MAX);
-	  if (!streq(curdir, starting_directory))
-	      dir_key.name = strcache_add (concat (3, curdir, "/", name));
-	}
-    }
+  dir_key.name = abspath(name,curdir);
 
   dir_slot = (struct directory **) hash_find_slot (&directories, &dir_key);
   dir = *dir_slot;
